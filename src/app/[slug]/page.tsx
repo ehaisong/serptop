@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Build time: enumerate all page slugs for static generation
 export async function generateStaticParams() {
   const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
   if (!projectId) return [];
@@ -29,7 +28,6 @@ export async function generateStaticParams() {
 
   if (!sections) return [];
 
-  // Deduplicate slugs, exclude 'index' (handled by root page.tsx)
   const slugs = [...new Set(sections.map((s: any) => s.page_slug))].filter(
     (s) => s !== 'index'
   );
