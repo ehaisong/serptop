@@ -19,13 +19,22 @@ interface ThemeData {
 
 export default function Home() {
   const [sections, setSections] = useState<any[]>([]);
+  const [allSections, setAllSections] = useState<any[]>([]);
   const [theme, setTheme] = useState<ThemeData | undefined>();
   const [loading, setLoading] = useState(true);
+  const [currentSlug, setCurrentSlug] = useState('index');
+
+  // Determine page slug from URL pathname
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      setCurrentSlug(path || 'index');
+    }
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        // Step 1: Resolve project ID by domain
         let projectId = process.env.NEXT_PUBLIC_PROJECT_ID || '';
 
         if (!projectId && typeof window !== 'undefined') {
@@ -37,7 +46,6 @@ export default function Home() {
 
         if (!projectId) { setLoading(false); return; }
 
-        // Step 2: Fetch all site data via single RPC call (bypasses RLS)
         const { data: siteData, error } = await supabase.rpc('get_site_data', {
           _project_id: projectId,
         });
@@ -48,7 +56,6 @@ export default function Home() {
           return;
         }
 
-        // Parse theme
         const t = siteData.theme;
         if (t) {
           setTheme({
@@ -59,7 +66,7 @@ export default function Home() {
           });
         }
 
-        setSections(siteData.sections || []);
+        setAllSections(siteData.sections || []);
       } catch (err) {
         console.error('Failed to load site:', err);
       } finally {
@@ -68,6 +75,41 @@ export default function Home() {
     }
 
     fetchData();
+  }, []);
+
+  // Filter sections by current slug
+  useEffect(() => {
+    const filtered = allSections.filter((s: any) => {
+      const slug = (s.page_slug || 'index').replace(/^\/+/, '') || 'index';
+      return slug === currentSlug;
+    });
+    setSections(filtered);
+  }, [allSections, currentSlug]);
+
+  // Intercept internal link clicks for SPA navigation
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a');
+      if (!anchor) return;
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('http') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#')) return;
+      e.preventDefault();
+      const newSlug = href.replace(/^\/+|\/+$/g, '') || 'index';
+      setCurrentSlug(newSlug);
+      window.history.pushState(null, '', href);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const handler = () => {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      setCurrentSlug(path || 'index');
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
   }, []);
 
   if (loading) {
