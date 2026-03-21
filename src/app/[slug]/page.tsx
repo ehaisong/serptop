@@ -37,7 +37,7 @@ export async function generateStaticParams() {
 
 async function getPageData(slug: string) {
   const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
-  if (!projectId) return { sections: [], theme: null };
+  if (!projectId) return { sections: [], theme: undefined };
 
   const { data: blueprint } = await supabase
     .from('site_blueprints')
@@ -47,7 +47,7 @@ async function getPageData(slug: string) {
     .limit(1)
     .single();
 
-  if (!blueprint) return { sections: [], theme: null };
+  if (!blueprint) return { sections: [], theme: undefined };
 
   const { data: sections } = await supabase
     .from('page_sections')
