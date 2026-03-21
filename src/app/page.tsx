@@ -133,25 +133,42 @@ export default function Home() {
     setSections(filtered);
   }, [allSections, currentSlug]);
 
-  // Dynamic SEO: update title, meta description, and OG tags
+  // Dynamic SEO: prefer stored page_seo, fallback to hero extraction
   useEffect(() => {
     if (!siteData || !sections.length) return;
     const projectName = siteData.project_name || 'SiteForge Site';
-    const pageSections = sections;
-    const { title, description } = extractSEO(pageSections, projectName);
-    const pageTitle = currentSlug === 'index' ? title : `${currentSlug.charAt(0).toUpperCase() + currentSlug.slice(1)} - ${projectName}`;
+    const pageSeo = siteData.page_seo?.[currentSlug];
     const url = typeof window !== 'undefined' ? window.location.href : '';
 
+    let pageTitle: string;
+    let pageDescription: string;
+
+    if (pageSeo?.seo_title) {
+      // Use AI-generated SEO metadata
+      pageTitle = pageSeo.seo_title;
+      pageDescription = pageSeo.seo_description || pageSeo.title || projectName;
+    } else {
+      // Fallback: extract from hero section
+      const { title, description } = extractSEO(sections, projectName);
+      pageTitle = currentSlug === 'index' ? title : `${currentSlug.charAt(0).toUpperCase() + currentSlug.slice(1)} - ${projectName}`;
+      pageDescription = description;
+    }
+
     document.title = pageTitle;
-    setMeta('description', description);
+    setMeta('description', pageDescription);
     setMeta('og:title', pageTitle, true);
-    setMeta('og:description', description, true);
+    setMeta('og:description', pageDescription, true);
     setMeta('og:url', url, true);
     setMeta('og:type', 'website', true);
     setMeta('og:site_name', projectName, true);
     setMeta('twitter:card', 'summary_large_image');
     setMeta('twitter:title', pageTitle);
-    setMeta('twitter:description', description);
+    setMeta('twitter:description', pageDescription);
+
+    // SEO keywords
+    if (pageSeo?.seo_keywords) {
+      setMeta('keywords', pageSeo.seo_keywords);
+    }
 
     // Dynamic favicon
     setFavicon(siteData.favicon_path || null);
