@@ -17,12 +17,57 @@ interface ThemeData {
   fontBody?: string;
 }
 
+// Helper: update or create a meta tag
+function setMeta(name: string, content: string, property = false) {
+  if (!content) return;
+  const attr = property ? 'property' : 'name';
+  let el = document.querySelector(`meta[${attr}="${name}"]`) as HTMLMetaElement | null;
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attr, name);
+    document.head.appendChild(el);
+  }
+  el.content = content;
+}
+
+const SUPABASE_STORAGE_URL = `${SUPABASE_URL}/storage/v1/object/public/raw-assets`;
+
+// Helper: set favicon dynamically
+function setFavicon(faviconPath: string | null) {
+  if (!faviconPath) return;
+  const url = `${SUPABASE_STORAGE_URL}/${faviconPath}`;
+  let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = url;
+  // Also set apple-touch-icon
+  let apple = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
+  if (!apple) {
+    apple = document.createElement('link');
+    apple.rel = 'apple-touch-icon';
+    document.head.appendChild(apple);
+  }
+  apple.href = url;
+}
+
+// Extract SEO-relevant text from hero section props
+function extractSEO(sections: any[], projectName: string) {
+  const hero = sections.find((s: any) => s.component_type === 'hero');
+  const title = hero?.props?.headline || hero?.props?.title || projectName;
+  const description = hero?.props?.subheadline || hero?.props?.subtitle || hero?.props?.description || `${projectName} - 专业网站`;
+  return { title, description };
+}
+
 export default function Home() {
   const [sections, setSections] = useState<any[]>([]);
   const [allSections, setAllSections] = useState<any[]>([]);
   const [theme, setTheme] = useState<ThemeData | undefined>();
   const [loading, setLoading] = useState(true);
   const [currentSlug, setCurrentSlug] = useState('index');
+  const [siteData, setSiteData] = useState<any>(null);
 
   // Determine page slug from URL pathname
   useEffect(() => {
@@ -46,17 +91,19 @@ export default function Home() {
 
         if (!projectId) { setLoading(false); return; }
 
-        const { data: siteData, error } = await supabase.rpc('get_site_data', {
+        const { data: result, error } = await supabase.rpc('get_site_data', {
           _project_id: projectId,
         });
 
-        if (error || !siteData) {
+        if (error || !result) {
           console.error('get_site_data error:', error);
           setLoading(false);
           return;
         }
 
-        const t = siteData.theme;
+        setSiteData(result);
+
+        const t = result.theme;
         if (t) {
           setTheme({
             primaryColor: t.primary_color,
@@ -66,7 +113,7 @@ export default function Home() {
           });
         }
 
-        setAllSections(siteData.sections || []);
+        setAllSections(result.sections || []);
       } catch (err) {
         console.error('Failed to load site:', err);
       } finally {
@@ -86,7 +133,31 @@ export default function Home() {
     setSections(filtered);
   }, [allSections, currentSlug]);
 
-  // Intercept internal link clicks for SPA navigation
+  // Dynamic SEO: update title, meta description, and OG tags
+  useEffect(() => {
+    if (!siteData || !sections.length) return;
+    const projectName = siteData.project_name || 'SiteForge Site';
+    const pageSections = sections;
+    const { title, description } = extractSEO(pageSections, projectName);
+    const pageTitle = currentSlug === 'index' ? title : `${currentSlug.charAt(0).toUpperCase() + currentSlug.slice(1)} - ${projectName}`;
+    const url = typeof window !== 'undefined' ? window.location.href : '';
+
+    document.title = pageTitle;
+    setMeta('description', description);
+    setMeta('og:title', pageTitle, true);
+    setMeta('og:description', description, true);
+    setMeta('og:url', url, true);
+    setMeta('og:type', 'website', true);
+    setMeta('og:site_name', projectName, true);
+    setMeta('twitter:card', 'summary_large_image');
+    setMeta('twitter:title', pageTitle);
+    setMeta('twitter:description', description);
+
+    // Dynamic favicon
+    setFavicon(siteData.favicon_path || null);
+  }, [sections, currentSlug, siteData]);
+
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement).closest('a');
