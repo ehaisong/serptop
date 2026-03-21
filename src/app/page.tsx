@@ -1,44 +1,81 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { SectionRenderer } from '@/components/SectionRenderer';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
-
-async function getPageData(slug: string) {
-  const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
-  if (!projectId || !supabase) return { sections: [], theme: undefined };
-
-  const { data: blueprint } = await supabase
-    .from('site_blueprints')
-    .select('id, theme')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (!blueprint) return { sections: [], theme: undefined };
-
-  const { data: sections } = await supabase
-    .from('page_sections')
-    .select('*')
-    .eq('blueprint_id', blueprint.id)
-    .eq('page_slug', slug)
-    .order('section_order', { ascending: true });
-
-  const t = blueprint.theme as Record<string, any> | null;
-  const theme = t ? {
-    primaryColor: t.primary_color,
-    accentColor: t.accent_color,
-    fontHeading: t.heading_font,
-    fontBody: t.body_font,
-  } : undefined;
-
-  return { sections: sections || [], theme };
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  if (!url || !key) return null;
+  return createClient(url, key);
 }
 
-export default async function Home() {
-  const { sections, theme } = await getPageData('index');
+interface ThemeData {
+  primaryColor?: string;
+  accentColor?: string;
+  fontHeading?: string;
+  fontBody?: string;
+}
+
+export default function Home() {
+  const [sections, setSections] = useState<any[]>([]);
+  const [theme, setTheme] = useState<ThemeData | undefined>();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
+    if (!supabase || !projectId) {
+      setLoading(false);
+      return;
+    }
+
+    async function fetchData() {
+      const { data: blueprint } = await supabase!
+        .from('site_blueprints')
+        .select('id, theme')
+        .eq('project_id', projectId!)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!blueprint) { setLoading(false); return; }
+
+      const t = blueprint.theme as Record<string, any> | null;
+      if (t) {
+        setTheme({
+          primaryColor: t.primary_color,
+          accentColor: t.accent_color,
+          fontHeading: t.heading_font,
+          fontBody: t.body_font,
+        });
+      }
+
+      const { data: secs } = await supabase!
+        .from('page_sections')
+        .select('*')
+        .eq('blueprint_id', blueprint.id)
+        .eq('page_slug', 'index')
+        .order('section_order', { ascending: true });
+
+      setSections(secs || []);
+      setLoading(false);
+    }
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+          <p className="text-gray-500">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!sections.length) {
     return (
