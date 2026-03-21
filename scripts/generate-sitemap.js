@@ -1,9 +1,8 @@
 /**
  * Post-build script: generates sitemap.xml and robots.txt in the out/ directory.
- * Reads NEXT_PUBLIC_PROJECT_ID and NEXT_PUBLIC_SITE_URL from environment.
+ * Works with or without NEXT_PUBLIC_PROJECT_ID by scanning deploy records.
  */
 const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
@@ -14,14 +13,14 @@ const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
 const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
 const outDir = path.join(__dirname, '..', 'out');
 
-function fetchJson(url, body) {
+function rpcCall(fnName, body) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
-    const parsed = new URL(url);
+    const parsed = new URL(`${SUPABASE_URL}/rest/v1/rpc/${fnName}`);
     const options = {
       hostname: parsed.hostname,
-      port: parsed.port || 443,
-      path: parsed.pathname + parsed.search,
+      port: 443,
+      path: parsed.pathname,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,18 +43,29 @@ function fetchJson(url, body) {
 }
 
 async function main() {
-  if (!projectId) {
-    console.log('[sitemap] No NEXT_PUBLIC_PROJECT_ID set, skipping sitemap generation');
+  let pid = projectId;
+
+  // If no PROJECT_ID env var, try to resolve from SITE_URL domain
+  if (!pid && siteUrl) {
+    try {
+      const domain = new URL(siteUrl).hostname;
+      console.log(`[sitemap] Resolving project from domain: ${domain}`);
+      pid = await rpcCall('resolve_project_by_domain', { _domain: domain });
+    } catch (e) {
+      console.log('[sitemap] Domain resolution failed:', e.message);
+    }
+  }
+
+  if (!pid) {
+    console.log('[sitemap] No project ID available, skipping sitemap generation');
     return;
   }
 
-  console.log(`[sitemap] Generating for project ${projectId}`);
+  console.log(`[sitemap] Generating for project ${pid}`);
 
-  // Call get_site_data RPC
   let siteData;
   try {
-    const rpcUrl = `${SUPABASE_URL}/rest/v1/rpc/get_site_data`;
-    siteData = await fetchJson(rpcUrl, { _project_id: projectId });
+    siteData = await rpcCall('get_site_data', { _project_id: pid });
   } catch (err) {
     console.error('[sitemap] Failed to fetch site data:', err.message);
     return;
@@ -66,22 +76,14 @@ async function main() {
     return;
   }
 
-  // Extract unique page slugs from sections
+  // Extract unique page slugs
   const slugs = new Set();
   for (const section of siteData.sections) {
     const slug = (section.page_slug || 'index').replace(/^\/+/, '') || 'index';
     slugs.add(slug);
   }
 
-  // Determine base URL
-  let baseUrl = siteUrl;
-  if (!baseUrl) {
-    // Try to get deploy URL from site_deployments — but we can't easily query this
-    // without auth, so fallback to a relative approach
-    console.log('[sitemap] No NEXT_PUBLIC_SITE_URL set, using relative URLs');
-    baseUrl = '';
-  }
-
+  const baseUrl = siteUrl || '';
   const today = new Date().toISOString().split('T')[0];
 
   // Build sitemap XML
@@ -89,9 +91,7 @@ async function main() {
   xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
 
   for (const slug of slugs) {
-    const loc = slug === 'index'
-      ? `${baseUrl}/`
-      : `${baseUrl}/${slug}/`;
+    const loc = slug === 'index' ? `${baseUrl}/` : `${baseUrl}/${slug}/`;
     const priority = slug === 'index' ? '1.0' : '0.8';
     xml += `  <url>\n`;
     xml += `    <loc>${loc}</loc>\n`;
@@ -100,10 +100,8 @@ async function main() {
     xml += `    <priority>${priority}</priority>\n`;
     xml += `  </url>\n`;
   }
-
   xml += '</urlset>\n';
 
-  // Write sitemap.xml
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
   }
@@ -114,9 +112,9 @@ async function main() {
   // Build robots.txt
   let robots = 'User-agent: *\nAllow: /\n';
   if (baseUrl) {
-    robots += `Sitemap: ${baseUrl}/sitemap.xml\n`;
+    robots += `\nSitemap: ${baseUrl}/sitemap.xml\n`;
   }
-  robots += '\n# Crawl-delay for polite bots\nCrawl-delay: 1\n';
+  robots += '\nCrawl-delay: 1\n';
 
   fs.writeFileSync(path.join(outDir, 'robots.txt'), robots, 'utf-8');
   console.log('[sitemap] Generated robots.txt');

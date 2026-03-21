@@ -182,6 +182,41 @@ function injectJsonLd(schemas: any[]) {
   }
 }
 
+// Inject sitemap link and dynamic robots hints
+function injectSitemapMeta(siteData: any) {
+  if (!siteData?.sections?.length) return;
+  const sitemapUrl = `${SUPABASE_URL}/functions/v1/sitemap-generator?domain=${encodeURIComponent(window.location.hostname)}`;
+
+  // Add <link rel="sitemap">
+  if (!document.querySelector('link[rel="sitemap"]')) {
+    const link = document.createElement('link');
+    link.rel = 'sitemap';
+    link.type = 'application/xml';
+    link.title = 'Sitemap';
+    link.href = sitemapUrl;
+    document.head.appendChild(link);
+  }
+
+  // Ensure robots meta allows indexing
+  let robotsMeta = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+  if (robotsMeta) {
+    robotsMeta.content = 'index, follow';
+  } else {
+    robotsMeta = document.createElement('meta');
+    robotsMeta.name = 'robots';
+    robotsMeta.content = 'index, follow';
+    document.head.appendChild(robotsMeta);
+  }
+
+  // Add canonical link
+  if (!document.querySelector('link[rel="canonical"]')) {
+    const canonical = document.createElement('link');
+    canonical.rel = 'canonical';
+    canonical.href = window.location.href.split('?')[0];
+    document.head.appendChild(canonical);
+  }
+}
+
 // Extract SEO-relevant text from hero section props
 function extractSEO(sections: any[], projectName: string) {
   const hero = sections.find((s: any) => s.component_type === 'hero');
@@ -305,6 +340,9 @@ export default function Home() {
     // JSON-LD structured data
     const jsonLdSchemas = buildJsonLd(sections, siteData, currentSlug);
     injectJsonLd(jsonLdSchemas);
+
+    // Sitemap & robots meta
+    injectSitemapMeta(siteData);
   }, [sections, currentSlug, siteData]);
 
 
