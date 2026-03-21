@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "sh -c 'printenv | grep ^NEXT_PUBLIC_ > .env.local 2>/dev/null; next build'",
     "start": "npx serve out -l 8080"
   },
   "dependencies": {
