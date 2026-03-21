@@ -1,14 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { SectionRenderer } from '@/components/SectionRenderer';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 async function getPageData(slug: string) {
   const projectId = process.env.NEXT_PUBLIC_PROJECT_ID;
-  if (!projectId) return { sections: [], theme: undefined };
+  if (!projectId || !supabase) return { sections: [], theme: undefined };
 
   const { data: blueprint } = await supabase
     .from('site_blueprints')
