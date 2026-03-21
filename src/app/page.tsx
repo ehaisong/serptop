@@ -53,6 +53,135 @@ function setFavicon(faviconPath: string | null) {
   apple.href = url;
 }
 
+// Build JSON-LD structured data from sections and site data
+function buildJsonLd(sections: any[], siteData: any, currentSlug: string) {
+  const schemas: any[] = [];
+  const projectName = siteData?.project_name || 'Website';
+  const siteUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  // 1. WebSite schema (index page only)
+  if (currentSlug === 'index') {
+    schemas.push({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: projectName,
+      url: siteUrl,
+    });
+  }
+
+  // 2. Organization schema - extract from navbar/footer
+  const navbar = sections.find((s: any) => s.component_type === 'navbar');
+  const footer = sections.find((s: any) => s.component_type === 'footer');
+  if (currentSlug === 'index' && (navbar || footer)) {
+    const org: any = {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: navbar?.props?.logo?.text || footer?.props?.logo?.text || projectName,
+      url: siteUrl,
+    };
+    // Logo from navbar
+    if (navbar?.props?.logo?.src) {
+      const logoSrc = navbar.props.logo.src;
+      org.logo = logoSrc.startsWith('http') ? logoSrc : `${SUPABASE_STORAGE_URL}/${logoSrc}`;
+    }
+    // Social links from footer
+    const socials = footer?.props?.socials;
+    if (socials?.length) {
+      org.sameAs = socials.map((s: any) => s.href).filter((h: string) => h?.startsWith('http'));
+    }
+    schemas.push(org);
+  }
+
+  // 3. FAQPage schema - extract from FAQ sections
+  const faqSections = sections.filter((s: any) => s.component_type === 'faq');
+  for (const faq of faqSections) {
+    const items = faq.props?.items || [];
+    if (items.length > 0) {
+      schemas.push({
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: items.map((item: any) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+          },
+        })),
+      });
+    }
+  }
+
+  // 4. Product schema - from product_gallery
+  const productSections = sections.filter((s: any) => s.component_type === 'product_gallery');
+  for (const pg of productSections) {
+    const products = pg.props?.products || [];
+    for (const product of products) {
+      if (!product.name) continue;
+      const p: any = {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: product.name,
+      };
+      if (product.description) p.description = product.description;
+      if (product.image) {
+        p.image = product.image.startsWith('http') ? product.image : `${SUPABASE_STORAGE_URL}/${product.image}`;
+      }
+      if (product.price) {
+        p.offers = {
+          '@type': 'Offer',
+          price: product.price.replace(/[^0-9.]/g, ''),
+          priceCurrency: product.price.includes('¥') || product.price.includes('元') ? 'CNY' : 'USD',
+          availability: 'https://schema.org/InStock',
+        };
+      }
+      schemas.push(p);
+    }
+  }
+
+  // 5. BreadcrumbList (non-index pages)
+  if (currentSlug !== 'index') {
+    const pageSeo = siteData?.page_seo?.[currentSlug];
+    schemas.push({
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '首页', item: siteUrl },
+        { '@type': 'ListItem', position: 2, name: pageSeo?.title || currentSlug, item: pageUrl },
+      ],
+    });
+  }
+
+  // 6. WebPage schema for every page
+  const pageSeo = siteData?.page_seo?.[currentSlug];
+  const hero = sections.find((s: any) => s.component_type === 'hero');
+  schemas.push({
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: pageSeo?.seo_title || hero?.props?.headline || projectName,
+    description: pageSeo?.seo_description || hero?.props?.subheadline || '',
+    url: pageUrl,
+    isPartOf: { '@type': 'WebSite', name: projectName, url: siteUrl },
+  });
+
+  return schemas;
+}
+
+// Inject JSON-LD into document head
+function injectJsonLd(schemas: any[]) {
+  // Remove old JSON-LD scripts we injected previously
+  document.querySelectorAll('script[data-jsonld="auto"]').forEach(el => el.remove());
+
+  for (const schema of schemas) {
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.setAttribute('data-jsonld', 'auto');
+    script.textContent = JSON.stringify(schema);
+    document.head.appendChild(script);
+  }
+}
+
 // Extract SEO-relevant text from hero section props
 function extractSEO(sections: any[], projectName: string) {
   const hero = sections.find((s: any) => s.component_type === 'hero');
@@ -172,6 +301,10 @@ export default function Home() {
 
     // Dynamic favicon
     setFavicon(siteData.favicon_path || null);
+
+    // JSON-LD structured data
+    const jsonLdSchemas = buildJsonLd(sections, siteData, currentSlug);
+    injectJsonLd(jsonLdSchemas);
   }, [sections, currentSlug, siteData]);
 
 
